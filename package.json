@@ -10,7 +10,8 @@
     "build": "tsc --noEmit && vite build && node scripts/build-sw.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "lint": "oxlint src"
+    "lint": "oxlint src",
+    "deploy": "pnpm lint && pnpm test && pnpm build && node scripts/deploy-pages.mjs"
   },
   "dependencies": {
     "@fontsource-variable/montserrat": "^5.3.0",
