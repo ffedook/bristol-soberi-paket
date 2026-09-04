@@ -1,4 +1,7 @@
 import {
+  lazy,
+  Suspense,
+  type CSSProperties,
   useEffect,
   useEffectEvent,
   useRef,
@@ -15,7 +18,11 @@ import {
   type Action,
 } from './engine';
 import { Effects, emitEffect } from './Effects';
-import { sound, vibrate, unlockAudio } from './audio';
+import { sound, unlockAudio } from './audio';
+import { TapTarget } from './TapTarget';
+import { hapticMode, resultHaptic } from './haptics';
+import { sceneBeat, THEFT_DURATION, WIN_DURATION } from './motion';
+const Scene3D = lazy(() => import('./Scene3D'));
 const art = (n: string) => import.meta.env.BASE_URL + 'art/' + n;
 const fmt = (v: number) => v.toLocaleString('ru-RU');
 type InstallPrompt = Event & {
@@ -104,6 +111,11 @@ function Dialog({
 export default function App() {
   const { state, dispatch, storageError } = useGame();
   const r = state.round;
+  const [threeReady, setThreeReady] = useState(false);
+  const [feedbackMode] = useState(hapticMode);
+  useEffect(() => {
+    if (!r) setThreeReady(false);
+  }, [r]);
   const [mode, setMode] = useState<Mode>('free'),
     [modal, setModal] = useState<string | null>(null);
   const [scene, setScene] = useState(''),
@@ -129,7 +141,7 @@ export default function App() {
     matchMedia('(display-mode: standalone)').matches,
   );
   const [, setDayTick] = useState(0);
-  const bag = useRef<HTMLButtonElement>(null),
+  const bag = useRef<HTMLDivElement>(null),
     shell = useRef<HTMLDivElement>(null);
   const roundId = r?.id,
     roundStatus = r?.status;
@@ -201,7 +213,7 @@ export default function App() {
           setScene('');
           setResultReady(true);
         },
-        reduced ? 150 : 1550,
+        reduced ? 150 : THEFT_DURATION,
       );
       return () => clearTimeout(t);
     }
@@ -212,7 +224,7 @@ export default function App() {
           setScene('');
           setResultReady(true);
         },
-        reduced ? 100 : 650,
+        reduced ? 100 : WIN_DURATION,
       );
       return () => clearTimeout(t);
     }
@@ -229,18 +241,17 @@ export default function App() {
     if (a.type === 'tap') {
       if (after.round?.status === 'caught' || after.round?.status === 'lost') {
         if (state.sound) sound('danger');
-        if (state.haptics) vibrate([50, 60, 100]);
+        resultHaptic(state.haptics, 'danger');
       } else {
         const gain = (after.round?.payout ?? 0) - (before.round?.payout ?? 0);
         if (state.sound) sound('tap', after.round?.step);
-        if (state.haptics) vibrate(10);
         emitEffect({
           kind: 'tap',
           ...effectPoint(),
           amount: gain,
           progress: after.round?.step,
         });
-        if (bag.current && !reduced) {
+        if (bag.current && !reduced && !threeReady) {
           bag.current.getAnimations().forEach((a) => a.cancel());
           bag.current.animate(
             [
@@ -255,12 +266,13 @@ export default function App() {
     }
     if (after.round?.status === 'won' && before.round?.status !== 'won') {
       if (state.sound) sound('win');
-      if (state.haptics) vibrate([20, 40, 30]);
+      resultHaptic(state.haptics, 'win');
       emitEffect({ kind: 'win', ...effectPoint() });
     }
     if (a.type === 'repel') {
       if (state.sound) sound('repel');
-      if (state.haptics) vibrate([30, 30, 60]);
+      resultHaptic(state.haptics, 'repel');
+      sceneBeat({ kind: 'repel' });
       emitEffect({ kind: 'repel', ...effectPoint() });
       setToast('Белка убежала. Продолжай!');
     }
@@ -293,9 +305,15 @@ export default function App() {
           'risk-' +
           tier +
           ' scene-' +
-          scene
+          scene +
+          (threeReady ? ' has-3d' : '')
         }
         ref={shell}
+        style={
+          {
+            '--danger': r ? Math.min(1, 0.12 + r.step / 110) : 0,
+          } as CSSProperties
+        }
         data-testid="game"
         data-status={r?.status ?? 'home'}
       >
@@ -304,6 +322,7 @@ export default function App() {
           aria-hidden="true"
         />
         <div className="top-shade" aria-hidden="true" />
+        {active && <div className="danger-wash" aria-hidden="true" />}
         <main
           className="surface"
           inert={!!modal || (!!r && r.status !== 'playing')}
@@ -471,24 +490,28 @@ export default function App() {
               <div className="bag-stage">
                 <div className="bag-halo" aria-hidden="true" />
                 <img className="bag-shadow" src={art('shadow.svg')} alt="" />
-                <button
+                <Suspense fallback={null}>
+                  <Scene3D
+                    roundId={r.id}
+                    step={r.step}
+                    status={r.status}
+                    reduced={reduced}
+                    onReady={setThreeReady}
+                  />
+                </Suspense>
+                <TapTarget
                   ref={bag}
                   className={
                     'bag-button ' +
                     (['caught', 'lost'].includes(r.status) ? 'caught-bag' : '')
                   }
-                  aria-label="Нажать на пакет"
-                  disabled={r.status !== 'playing'}
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    tap();
+                  disabled={!!modal || r.status !== 'playing'}
+                  haptics={state.haptics}
+                  onPress={() => {
+                    sceneBeat({ kind: 'tap' });
+                    if (state.sound) unlockAudio();
                   }}
-                  onClick={(e) => {
-                    if (e.detail === 0) tap();
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.repeat) e.preventDefault();
-                  }}
+                  onTap={tap}
                 >
                   <img
                     className="bag-character"
@@ -496,7 +519,7 @@ export default function App() {
                     alt="Красный пакет Бристоль"
                     draggable="false"
                   />
-                </button>
+                </TapTarget>
                 {r.step === 0 && r.status === 'playing' && (
                   <span className="tap-hint">Тапай по пакету</span>
                 )}
@@ -531,7 +554,7 @@ export default function App() {
                 <p className="footer-note">
                   {r.status === 'playing'
                     ? r.step === 0
-                      ? 'Первый тап — и игра началась'
+                      ? 'Можно тапать несколькими пальцами'
                       : r.repelled
                         ? 'Белка вернётся — второго отгона не будет'
                         : 'Можно забрать выигрыш прямо сейчас'
@@ -750,18 +773,23 @@ export default function App() {
                 role="switch"
                 aria-checked={state.haptics}
                 aria-label="Вибрация"
+                disabled={feedbackMode === 'unavailable'}
                 className={'switch ' + (state.haptics ? 'on' : '')}
                 onClick={() => {
                   void act({ type: 'settings', haptics: !state.haptics });
-                  if (!state.haptics) vibrate(20);
+                  if (!state.haptics) resultHaptic(true, 'repel');
                 }}
               >
                 <i />
               </button>
             </div>
             <p className="small-copy">
-              Вибрация доступна на поддерживаемых устройствах. Уменьшение
-              движения учитывает настройки телефона.
+              {feedbackMode === 'native-switch'
+                ? 'На iPhone — системный тактильный щелчок на тап по пакету. Его сила зависит от iOS и настроек телефона.'
+                : feedbackMode === 'vibration'
+                  ? 'Тактильный отклик включён для поддерживающего его устройства.'
+                  : 'Этот браузер не предоставляет тактильный отклик. Звук и визуальные реакции доступны.'}{' '}
+              Уменьшение движения учитывает настройки телефона.
             </p>
             <button
               className="silver-button action-button"
