@@ -1,4 +1,12 @@
 let context: AudioContext | null = null;
+export function unlockAudio() {
+  try {
+    context ??= new AudioContext();
+    if (context.state === 'suspended') void context.resume().catch(() => {});
+  } catch {
+    /* Audio is optional. */
+  }
+}
 export function sound(kind: 'tap' | 'win' | 'danger' | 'repel', progress = 0) {
   try {
     context ??= new AudioContext();

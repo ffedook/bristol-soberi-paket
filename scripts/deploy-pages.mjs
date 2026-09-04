@@ -62,6 +62,11 @@ run(
   ['config', 'user.email', run('git', ['config', 'user.email'])],
   target,
 );
+run(
+  'git',
+  ['config', 'credential.https://github.com.helper', '!gh auth git-credential'],
+  target,
+);
 run('git', ['add', '.'], target);
 if (run('git', ['status', '--porcelain'], target)) {
   run(

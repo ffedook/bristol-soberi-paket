@@ -15,7 +15,7 @@ import {
   type Action,
 } from './engine';
 import { Effects, emitEffect } from './Effects';
-import { sound, vibrate } from './audio';
+import { sound, vibrate, unlockAudio } from './audio';
 const art = (n: string) => import.meta.env.BASE_URL + 'art/' + n;
 const fmt = (v: number) => v.toLocaleString('ru-RU');
 type InstallPrompt = Event & {
@@ -223,6 +223,7 @@ export default function App() {
     return { x: (rect?.width ?? 428) / 2, y: (rect?.height ?? 820) * 0.58 };
   };
   async function act(a: Action) {
+    if (state.sound || (a.type === 'settings' && a.sound)) unlockAudio();
     const { before, after } = await dispatch(a);
     if (after === before) return;
     if (a.type === 'tap') {
