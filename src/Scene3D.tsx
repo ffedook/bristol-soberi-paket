@@ -4,15 +4,23 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createBag, createSquirrel } from './characters';
 import { createArmIK } from './ik';
 import { createArmStretch } from './armStretch';
-import { sceneBus, theftPose, type SceneBeat } from './motion';
-import type { Round } from './engine';
+import {
+  sceneBus,
+  theftPose,
+  blockPose,
+  BLOCK_DURATION,
+  type SceneBeat,
+} from './motion';
+import type { BoosterKind, Round } from './engine';
 
 export type Scene3DProps = {
   roundId: string;
   step: number;
+  booster?: BoosterKind | null;
   status: Round['status'];
   reduced: boolean;
   previewTime?: number;
+  previewBlockTime?: number;
   onReady?: (ready: boolean) => void;
 };
 export default function Scene3D(props: Scene3DProps) {
@@ -45,7 +53,7 @@ export default function Scene3D(props: Scene3DProps) {
       el.appendChild(renderer.domElement);
       const scene = new THREE.Scene(),
         camera = new THREE.PerspectiveCamera(33, 1, 0.1, 60);
-      camera.position.set(0, 2.35, 7.7);
+      camera.position.set(0, 2.35, 6.7);
       camera.lookAt(0, 1.65, 0);
       const environment = new RoomEnvironment(),
         pmrem = new THREE.PMREMGenerator(renderer);
@@ -149,6 +157,67 @@ export default function Scene3D(props: Scene3DProps) {
       shadow.scale.y = 0.7;
       shadow.position.y = -0.025;
       scene.add(shadow);
+      const guard = new THREE.Group();
+      scene.add(guard);
+      const bubbleMat = new THREE.MeshPhysicalMaterial({
+        color: 0x7de6ff,
+        transparent: true,
+        opacity: 0.08,
+        roughness: 0.18,
+        metalness: 0.12,
+        depthWrite: false,
+      });
+      const bubble = new THREE.Mesh(
+        new THREE.SphereGeometry(1, 32, 20),
+        bubbleMat,
+      );
+      bubble.position.set(0, 1.72, 0.03);
+      bubble.scale.set(1.53, 1.76, 0.87);
+      guard.add(bubble);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0x7de6ff,
+        transparent: true,
+        opacity: 0.65,
+        depthWrite: false,
+      });
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(1.37, 0.022, 8, 64),
+        ringMat,
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = 0.055;
+      guard.add(ring);
+      const orbit = new THREE.Group();
+      guard.add(orbit);
+      for (let i = 0; i < 6; i++) {
+        const mote = new THREE.Mesh(
+          new THREE.SphereGeometry(0.035, 8, 6),
+          ringMat,
+        );
+        const angle = (i * Math.PI) / 3;
+        mote.position.set(
+          Math.cos(angle) * 1.35,
+          0.17 + i * 0.25,
+          Math.sin(angle) * 0.8,
+        );
+        orbit.add(mote);
+      }
+      const rippleMat = new THREE.MeshBasicMaterial({
+        color: 0xa4edff,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+      });
+      const ripple = new THREE.Mesh(
+        new THREE.TorusGeometry(1, 0.025, 8, 48),
+        rippleMat,
+      );
+      ripple.position.set(0, 1.7, 0.85);
+      guard.add(ripple);
+      let blockAt = -99999,
+        boostAt = -99999,
+        checkpointAt = -99999;
+      let lastBooster: BoosterKind = 'shield';
       let contextLost = false,
         reportedReady = false;
       let previousId = latest.current.roundId,
@@ -162,7 +231,10 @@ export default function Scene3D(props: Scene3DProps) {
         if (b.kind === 'tap') {
           tapAt = performance.now();
           side = b.side ?? -side;
-        } else repelAt = performance.now();
+        } else if (b.kind === 'block') blockAt = performance.now();
+        else if (b.kind === 'boost') boostAt = performance.now();
+        else if (b.kind === 'checkpoint') checkpointAt = performance.now();
+        else repelAt = performance.now();
       };
       sceneBus.addEventListener('beat', beat);
       const resize = () => {
@@ -224,12 +296,19 @@ export default function Scene3D(props: Scene3DProps) {
         bagActor.rotation.y +=
           (reduced ? 0 : Math.sin(t * 1.1) * 0.065) + impulse * 0.1 * side;
         bagActor.rotation.z = idle * 0.018 + impulse * 0.045 * side;
-        camera.position.z = 7.7;
+        camera.position.z = 6.7;
+        camera.position.x = 0;
         thiefActor.visible = false;
         thiefActor.rotation.set(0, 0, 0);
         thiefActor.scale.setScalar(1);
         bag.setExpression(
-          p.step > 85 ? 'panic' : p.step > 42 ? 'nervous' : 'happy',
+          p.booster
+            ? 'relieved'
+            : p.step > 85
+              ? 'panic'
+              : p.step > 42
+                ? 'nervous'
+                : 'happy',
         );
         const pulse = reduced
           ? 0.6
@@ -268,12 +347,12 @@ export default function Scene3D(props: Scene3DProps) {
         if (p.status === 'caught' || p.status === 'lost') {
           const q = theftPose(reduced ? 3.2 : elapsed);
           const wideDistance = Math.max(
-            8.8,
+            6.9,
             5.5 /
               (2 * Math.tan(THREE.MathUtils.degToRad(33 / 2)) * camera.aspect) +
               0.6,
           );
-          camera.position.z += q.peek * (wideDistance - 7.7);
+          camera.position.z += q.peek * (wideDistance - 6.7);
           carrying.position.set(q.carryX, q.carryY, 0);
           carrying.rotation.y = -q.run * 0.35;
           thiefActor.visible = q.visible;
@@ -360,6 +439,71 @@ export default function Scene3D(props: Scene3DProps) {
             thiefActor.position.set(-1.2 - repelAge * 5, repelAge * 0.6, 0.3);
             thiefActor.rotation.z = -repelAge * 2;
             bag.setExpression('relieved');
+          }
+        }
+        if (p.booster) lastBooster = p.booster;
+        const blockAge =
+            import.meta.env.DEV && p.previewBlockTime !== undefined
+              ? p.previewBlockTime
+              : (now - blockAt) / 1000,
+          boostAge = (now - boostAt) / 1000;
+        guard.visible =
+          p.status === 'playing' && (!!p.booster || blockAge < BLOCK_DURATION);
+        const guardColor = lastBooster === 'safe' ? 0x8df7b2 : 0x7de6ff;
+        bubbleMat.color.setHex(guardColor);
+        ringMat.color.setHex(guardColor);
+        rippleMat.color.setHex(guardColor);
+        const guardPulse = reduced ? 0 : Math.sin(t * 2.4) * 0.02;
+        bubbleMat.opacity = p.booster
+          ? 0.065 + guardPulse
+          : Math.max(0, 0.2 * (1 - blockAge / BLOCK_DURATION));
+        bubble.visible = lastBooster === 'shield' || blockAge < BLOCK_DURATION;
+        ring.scale.setScalar(1 + guardPulse);
+        orbit.rotation.y = reduced ? 0 : t * 0.7;
+        orbit.visible = !!p.booster;
+        ripple.visible =
+          !reduced && (blockAge < BLOCK_DURATION || boostAge < 0.7);
+        const wave = blockAge < BLOCK_DURATION ? blockAge : boostAge;
+        ripple.scale.setScalar(0.25 + Math.min(1, wave / 0.8) * 1.6);
+        rippleMat.opacity = Math.max(0, 0.65 * (1 - wave / 0.95));
+        if (p.status === 'playing' && blockAge < BLOCK_DURATION) {
+          bag.setExpression('relieved');
+          rim.color.setHex(guardColor);
+          rim.intensity = 4;
+          if (!reduced) {
+            const q = blockPose(blockAge);
+            const distance = Math.max(
+              6.7,
+              7 /
+                (2 *
+                  Math.tan(THREE.MathUtils.degToRad(33 / 2)) *
+                  camera.aspect) +
+                0.6,
+            );
+            camera.position.z = 6.7 + q.camera * (distance - 6.7);
+            camera.position.x = q.camera * 1.1;
+            thiefActor.visible = q.visible;
+            thiefActor.position.set(q.x, q.y, -0.3);
+            thiefActor.rotation.set(0, -0.6, q.tilt);
+            squirrel.setExpression('defeated');
+            squirrel.arms.left.rotation.x = -0.9;
+            squirrel.arms.right.rotation.x = -0.9;
+            bagActor.rotation.z +=
+              Math.sin(blockAge * 24) * Math.exp(-blockAge * 6) * 0.055;
+          }
+        }
+        const celebrationAge = (now - checkpointAt) / 1000;
+        if (
+          p.status === 'playing' &&
+          celebrationAge < 0.7 &&
+          blockAge >= BLOCK_DURATION
+        ) {
+          bag.setExpression('relieved');
+          if (!reduced) {
+            const bounce = Math.sin((celebrationAge / 0.7) * Math.PI);
+            bagActor.position.y += bounce * 0.25;
+            bag.arms.left.rotation.z -= bounce * 0.45;
+            bag.arms.right.rotation.z += bounce * 0.45;
           }
         }
         renderer.render(scene, camera);

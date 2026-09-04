@@ -19,6 +19,9 @@ import {
 } from './engine';
 import { Effects, emitEffect } from './Effects';
 import { sound, unlockAudio } from './audio';
+import { Boosters, BoosterIcon } from './Boosters';
+import { tapsText, coinsText } from './copy';
+import { boosterNames } from './engine';
 import { TapTarget } from './TapTarget';
 import { hapticMode, resultHaptic } from './haptics';
 import { sceneBeat, THEFT_DURATION, WIN_DURATION } from './motion';
@@ -237,14 +240,33 @@ export default function App() {
   async function act(a: Action) {
     if (state.sound || (a.type === 'settings' && a.sound)) unlockAudio();
     const { before, after } = await dispatch(a);
-    if (after === before) return;
+    if (after === before) {
+      if (a.type === 'boost')
+        setToast('Условия изменились. Проверь цену и нажми ещё раз.');
+      return;
+    }
+    if (a.type === 'boost') {
+      sceneBeat({ kind: 'boost' });
+      if (state.sound) sound('repel');
+      resultHaptic(state.haptics, 'repel');
+      setToast(boosterNames[a.kind] + ': защита включена');
+    }
     if (a.type === 'tap') {
+      if (
+        (after.round?.blockedSteals ?? 0) > (before.round?.blockedSteals ?? 0)
+      ) {
+        sceneBeat({ kind: 'block' });
+        resultHaptic(state.haptics, 'repel');
+        setToast('Защита сработала — пакет у тебя!');
+      }
       if (after.round?.status === 'caught' || after.round?.status === 'lost') {
         if (state.sound) sound('danger');
         resultHaptic(state.haptics, 'danger');
       } else {
         const gain = (after.round?.payout ?? 0) - (before.round?.payout ?? 0);
         if (state.sound) sound('tap', after.round?.step);
+        if (after.round?.status === 'playing' && after.round.step % 10 === 0)
+          sceneBeat({ kind: 'checkpoint' });
         emitEffect({
           kind: 'tap',
           ...effectPoint(),
@@ -306,7 +328,8 @@ export default function App() {
           tier +
           ' scene-' +
           scene +
-          (threeReady ? ' has-3d' : '')
+          (threeReady ? ' has-3d' : '') +
+          (r?.activeBooster ? ' boost-' + r.activeBooster.kind : '')
         }
         ref={shell}
         style={
@@ -466,7 +489,7 @@ export default function App() {
                 <div className="step-row">
                   <span>
                     {r.step}{' '}
-                    <span className="step-muted">/ {MAX_TAPS} тапов</span>
+                    <span className="step-muted">/ {MAX_TAPS} нажатий</span>
                   </span>
                   <span className="mode-label">
                     {r.mode === 'free' ? 'Бесплатная игра' : 'Платная игра'}
@@ -480,11 +503,15 @@ export default function App() {
                 </div>
                 <div className={'risk-label ' + tier}>
                   <span className="risk-dot" />
-                  {tier === 'high'
-                    ? 'ВЫСОКИЙ РИСК'
-                    : tier === 'medium'
-                      ? 'БЕЛКА ВСЁ БЛИЖЕ'
-                      : 'НЕ ТЕРЯЙ БДИТЕЛЬНОСТЬ'}
+                  {r.activeBooster
+                    ? r.activeBooster.kind === 'safe'
+                      ? 'ПАКЕТ В БЕЗОПАСНОЙ ЗОНЕ'
+                      : 'ЩИТ ГОТОВ ОТБИТЬ КРАЖУ'
+                    : tier === 'high'
+                      ? 'ВЫСОКИЙ РИСК'
+                      : tier === 'medium'
+                        ? 'БЕЛКА ВСЁ БЛИЖЕ'
+                        : 'НЕ ТЕРЯЙ БДИТЕЛЬНОСТЬ'}
                 </div>
               </section>
               <div className="bag-stage">
@@ -494,6 +521,7 @@ export default function App() {
                   <Scene3D
                     roundId={r.id}
                     step={r.step}
+                    booster={r.activeBooster?.kind ?? null}
                     status={r.status}
                     reduced={reduced}
                     onReady={setThreeReady}
@@ -544,6 +572,12 @@ export default function App() {
                 <div className="steal-dust" aria-hidden="true" />
               </div>
               <div className="game-footer">
+                <Boosters
+                  round={r}
+                  balance={state.balance}
+                  onBuy={(action) => void act(action)}
+                  onHelp={() => setModal('boosters')}
+                />
                 <button
                   className="cashout-button silver-button"
                   disabled={r.status !== 'playing' || r.step === 0}
@@ -551,14 +585,17 @@ export default function App() {
                 >
                   ЗАБРАТЬ МОНЕТЫ
                 </button>
-                <p className="footer-note">
-                  {r.status === 'playing'
-                    ? r.step === 0
-                      ? 'Можно тапать несколькими пальцами'
-                      : r.repelled
-                        ? 'Белка вернётся — второго отгона не будет'
-                        : 'Можно забрать выигрыш прямо сейчас'
-                    : 'Белка добежала до пакета'}
+                <p className="footer-note" role="status">
+                  {toast ||
+                    (r.status === 'playing'
+                      ? r.step === 0
+                        ? 'Можно тапать несколькими пальцами'
+                        : r.repelled
+                          ? 'Белка вернётся — второго отгона не будет'
+                          : 'Можно забрать выигрыш прямо сейчас'
+                      : r.status === 'won'
+                        ? 'Монеты зачислены на баланс'
+                        : 'Белка уносит пакет')}
                 </p>
               </div>
             </>
@@ -570,12 +607,12 @@ export default function App() {
           <Dialog
             title={
               r.status === 'caught'
-                ? 'Белка схватила пакет!'
+                ? 'Вернуть пакет?'
                 : r.status === 'won'
                   ? r.step === MAX_TAPS
                     ? 'Весь пакет твой!'
                     : 'Монеты твои!'
-                  : 'Белка оказалась быстрее'
+                  : 'Белка унесла пакет'
             }
           >
             <img
@@ -592,8 +629,8 @@ export default function App() {
             {r.status === 'caught' ? (
               <>
                 <p className="dialog-copy">
-                  Отгони её, чтобы сохранить пакет. Неудачный тап придётся
-                  повторить.
+                  Можно отогнать белку и продолжить с той же суммы. Это нажатие
+                  нужно будет повторить.
                 </p>
                 <div className="at-stake">
                   <span>В пакете</span>
@@ -610,7 +647,8 @@ export default function App() {
                 </button>
                 {state.balance < REPEL ? (
                   <p className="small-copy">
-                    Для отгона не хватает {fmt(REPEL - state.balance)} монет.
+                    Для отгона нужно ещё{' '}
+                    {coinsText(REPEL - state.balance, true)}.
                   </p>
                 ) : (
                   <p className="small-copy">Только один раз за раунд</p>
@@ -628,10 +666,9 @@ export default function App() {
                   +{fmt(r.payout)} <Coin />
                 </div>
                 <p className="dialog-copy">
-                  Забрал вовремя!
+                  Отлично, выигрыш сохранён!
                   <br />
-                  {r.step} {r.step === 1 ? 'тап' : 'тапов'} — и монеты на
-                  балансе.
+                  {tapsText(r.step)} — монеты уже на балансе.
                 </p>
                 <div className="receipt">
                   <span>Баланс</span>
@@ -649,9 +686,9 @@ export default function App() {
             ) : (
               <>
                 <p className="dialog-copy">
-                  Незабранные {fmt(r.lostAmount)} монет
+                  В пакете {coinsText(r.lostAmount)}
                   <br />
-                  остались в пакете.
+                  Белка унесла их с собой.
                 </p>
                 <div className="receipt">
                   <span>Баланс</span>
@@ -670,23 +707,65 @@ export default function App() {
             )}
           </Dialog>
         )}
+        {modal === 'boosters' && (
+          <Dialog title="Защити свой пакет" onClose={closeModal}>
+            <div className="booster-explanation shield">
+              <BoosterIcon kind="shield" />
+              <div>
+                <h3>Щит</h3>
+                <p>
+                  Блокирует одну попытку кражи в течение следующих пяти нажатий.
+                  После срабатывания или пятого нажатия исчезает.
+                </p>
+              </div>
+            </div>
+            <div className="booster-explanation safe">
+              <BoosterIcon kind="safe" />
+              <div>
+                <h3>Безопасная зона</h3>
+                <p>
+                  Три следующих нажатия гарантированно сохранят пакет. Защищает
+                  от каждой попытки кражи за это время.
+                </p>
+              </div>
+            </div>
+            <p className="small-copy">
+              Покупка сразу включает защиту и списывает монеты с баланса. Каждый
+              бустер — один раз за раунд. Одновременно действует только один.
+            </p>
+            <p className="small-copy">
+              Цена зависит от риска и возможного выигрыша. Она показана на
+              кнопке. В конце раунда защита заканчивается; ближе к финалу число
+              защищённых нажатий сокращается до оставшихся.
+            </p>
+            <button className="red-button action-button" onClick={closeModal}>
+              ПОНЯТНО
+            </button>
+          </Dialog>
+        )}
         {modal === 'rules' && (
           <Dialog title="Ещё тап или забрать?" onClose={closeModal}>
             <img className="rules-art" src={art('bag.webp')} alt="" />
             <ol className="rules-list">
               <li>
                 <b>Тапай по пакету.</b> Каждый успешный тап увеличивает выигрыш.
-                Всего 120 шагов.
+                В раунде 120 нажатий.
               </li>
               <li>
                 <b>Забирай вовремя.</b> Нажми «Забрать монеты», чтобы перевести
                 их на баланс.
               </li>
               <li>
-                <b>Берегись белки.</b> Она может прийти на любом тапе. За 100
-                монет можно один раз отогнать её и повторить неудачный тап.
+                <b>Берегись белки.</b> Без защиты она может украсть пакет на
+                любом нажатии. За 100 монет можно один раз отогнать её и
+                продолжить игру.
               </li>
             </ol>
+            <p className="small-copy">
+              Бустеры включаются до кражи: щит блокирует одну попытку кражи в
+              пределах пяти нажатий, безопасная зона защищает три нажатия
+              подряд. Каждый доступен один раз за раунд, по одному одновременно.
+            </p>
             <div className="rules-economy">
               <p>
                 <b>Бесплатно:</b> раз в день, до 2 350 монет.
@@ -695,8 +774,8 @@ export default function App() {
                 <b>За 100 монет:</b> до 5 000 монет.
               </p>
               <p>
-                Риск растёт с 2,62% до 15,32% на тап. Исход определяется при
-                нажатии; анимация показывает уже случившееся событие.
+                Риск без бустеров растёт с 2,62% до 15,32% за нажатие. Скорость
+                нажатий и анимация не меняют случайный исход.
               </p>
             </div>
             <p className="small-copy">
@@ -892,7 +971,7 @@ export default function App() {
             )}
           </Dialog>
         )}
-        {(toast || storageError) && (
+        {((toast && !active) || storageError) && (
           <div className="toast" role="status">
             {storageError
               ? 'Браузер не сохраняет прогресс. Не закрывай игру.'

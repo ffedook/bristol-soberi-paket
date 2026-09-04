@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import Scene3D from './Scene3D';
 import { sceneBeat } from './motion';
-import type { Round } from './engine';
+import type { BoosterKind, Round } from './engine';
 /** Imported only by Vite dev mode; never included in the deployed application. */
 export default function SceneLab() {
   const [status, setStatus] = useState<Round['status']>('playing'),
     [step, setStep] = useState(0),
     [id, setId] = useState(0),
     [time, setTime] = useState<number | undefined>(),
-    [ready, setReady] = useState(false);
+    [ready, setReady] = useState(false),
+    [booster, setBooster] = useState<BoosterKind | null>(null),
+    [blockTime, setBlockTime] = useState<number | undefined>();
   return (
     <div style={{ padding: 20, color: 'white', fontFamily: 'Arial' }}>
       <p>Проверка 3D · {ready ? 'готово' : 'загрузка'}</p>
@@ -30,6 +32,60 @@ export default function SceneLab() {
           </button>
         ))}
         <button onClick={() => sceneBeat({ kind: 'tap' })}>Тап</button>
+        <button
+          onClick={() => {
+            setStatus('playing');
+            setBooster('shield');
+            sceneBeat({ kind: 'boost' });
+          }}
+        >
+          Щит
+        </button>
+        <button
+          onClick={() => {
+            setStatus('playing');
+            setBooster('safe');
+            sceneBeat({ kind: 'boost' });
+          }}
+        >
+          Безопасная зона
+        </button>
+        <button
+          onClick={() => {
+            setStatus('playing');
+            setBlockTime(undefined);
+            sceneBeat({ kind: 'block' });
+          }}
+        >
+          Защита сработала
+        </button>
+        <button
+          onClick={() => {
+            setStatus('playing');
+            setBooster('shield');
+            setBlockTime(0.28);
+          }}
+        >
+          Удар о щит
+        </button>
+        <button
+          onClick={() => {
+            setStatus('playing');
+            setBooster('shield');
+            setBlockTime(0.6);
+          }}
+        >
+          Отскок от щита
+        </button>
+        <button
+          onClick={() => {
+            setStatus('playing');
+            sceneBeat({ kind: 'checkpoint' });
+          }}
+        >
+          Десять нажатий
+        </button>
+        <button onClick={() => setBooster(null)}>Без бустера</button>
         <button
           onClick={() => {
             setId((x) => x + 1);
@@ -79,9 +135,11 @@ export default function SceneLab() {
           <Scene3D
             roundId={String(id)}
             step={step}
+            booster={booster}
             status={status}
             reduced={false}
             previewTime={time}
+            previewBlockTime={status === 'playing' ? blockTime : undefined}
             onReady={setReady}
           />
         </div>

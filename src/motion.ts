@@ -1,6 +1,9 @@
 export const THEFT_DURATION = 3200;
 export const WIN_DURATION = 1250;
-export type SceneBeat = { kind: 'tap' | 'repel'; side?: number };
+export type SceneBeat = {
+  kind: 'tap' | 'repel' | 'boost' | 'block' | 'checkpoint';
+  side?: number;
+};
 export const sceneBus = new EventTarget();
 export function sceneBeat(beat: SceneBeat) {
   sceneBus.dispatchEvent(new CustomEvent('beat', { detail: beat }));
@@ -31,5 +34,20 @@ export function theftPose(seconds: number) {
     carryX: 0 - run * 6,
     carryY: run > 0 ? Math.abs(Math.sin(seconds * 22)) * 0.12 : 0,
     visible: seconds < THEFT_DURATION / 1000,
+  };
+}
+
+/** Approach the outside of the guard, recoil, then restore the camera. */
+export const BLOCK_DURATION = 1.3;
+export function blockPose(seconds: number) {
+  const approach = ease(seconds / 0.25);
+  const recoil = ease((seconds - 0.28) / 0.6);
+  return {
+    camera: approach * (1 - ease((seconds - 0.85) / 0.45)),
+    x: 4.5 - approach * 2.1 + recoil * 4,
+    y: Math.sin(recoil * Math.PI) * 0.4,
+    tilt: -recoil * 0.45,
+    impact: seconds >= 0.25 && seconds < 0.85,
+    visible: seconds >= 0 && seconds < 0.95,
   };
 }

@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { theftPose, THEFT_DURATION } from '../src/motion.ts';
+import {
+  theftPose,
+  THEFT_DURATION,
+  blockPose,
+  BLOCK_DURATION,
+} from '../src/motion.ts';
 test('squirrel visibly approaches before the bag is touched', () => {
   const pose = theftPose(0.55);
   assert.ok(pose.peek > 0.9);
@@ -20,4 +25,17 @@ test('bag is lifted only after reach, and travels with the thief', () => {
   assert.equal(running.bagZ, held.bagZ);
   assert.ok(running.carryX < held.carryX);
   assert.equal(theftPose(THEFT_DURATION / 1000).visible, false);
+});
+
+test('blocked thief stays outside the bag and camera returns after recoil', () => {
+  for (let t = 0; t <= BLOCK_DURATION; t += 0.01) {
+    const p = blockPose(t);
+    assert.ok(p.x >= 2.4 - 1e-8);
+    assert.ok(p.camera >= 0 && p.camera <= 1);
+  }
+  assert.equal(blockPose(0).camera, 0);
+  assert.equal(blockPose(0.28).camera, 1);
+  assert.ok(blockPose(0.7).x > blockPose(0.28).x);
+  assert.equal(blockPose(BLOCK_DURATION).visible, false);
+  assert.equal(blockPose(BLOCK_DURATION).camera, 0);
 });

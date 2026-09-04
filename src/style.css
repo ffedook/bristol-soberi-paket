@@ -1544,3 +1544,239 @@ button,
     inset: 3% -6% -2%;
   }
 }
+
+/* Keep counters, actors and controls in separate rows at every mobile height. */
+.in-game > .surface {
+  display: grid;
+  grid-template-rows: auto minmax(80px, 1fr) auto;
+  gap: 5px;
+  padding: calc(79px + env(safe-area-inset-top, 0px)) 0
+    calc(12px + env(safe-area-inset-bottom, 0px));
+}
+.in-game .scoreboard {
+  position: relative;
+  inset: auto;
+  margin: 0 22px;
+}
+.in-game .score {
+  height: clamp(65px, 11dvh, 96px);
+}
+.in-game .score > span {
+  font-size: clamp(54px, 9dvh, 82px);
+}
+.in-game .score > .coin {
+  width: 48px;
+  height: 48px;
+}
+.in-game .game-prompt {
+  font-size: 14px;
+}
+.in-game .progress-track {
+  margin: 7px 0;
+}
+.in-game .bag-stage {
+  position: relative;
+  inset: auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.in-game > .surface .bag-stage .scene-3d {
+  inset: 0;
+}
+.in-game .game-footer {
+  position: relative;
+  inset: auto;
+  margin: 0 18px;
+}
+.in-game .bottom-safe {
+  display: none;
+}
+.in-game .cashout-button {
+  min-height: 54px;
+  font-size: clamp(16px, 4.8vw, 20px);
+  border-radius: 15px;
+}
+.in-game .footer-note {
+  margin: 9px 0 0;
+  font-size: 10px;
+  min-height: 15px;
+  line-height: 1.4;
+}
+.in-game .tap-hint {
+  bottom: 1px;
+  font-size: 11px;
+}
+.boosters {
+  margin-bottom: 10px;
+  text-align: left;
+}
+.booster-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #fff6df;
+  font-size: 11px;
+  font-weight: 700;
+  min-height: 27px;
+  gap: 8px;
+}
+.booster-help {
+  width: 26px;
+  height: 26px;
+  background: #ffffff20;
+  border: 1px solid #ffffff36;
+  border-radius: 50%;
+  color: #fff;
+  padding: 0;
+  flex-shrink: 0;
+}
+.booster-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.booster-card {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 34px;
+  grid-template-rows: 22px auto;
+  gap: 4px 5px;
+  border: 1px solid #82d9ff80;
+  border-radius: 13px;
+  padding: 8px;
+  background: linear-gradient(150deg, #163b51ed, #11212ded);
+  color: #b9eeff;
+  text-align: left;
+  min-height: 73px;
+  box-shadow: 0 3px 8px #14061430;
+}
+.booster-card.safe {
+  color: #c0f6c7;
+  border-color: #a7eb9670;
+  background: linear-gradient(150deg, #25443aef, #142c27ed);
+}
+.booster-card svg {
+  width: 22px;
+  height: 22px;
+  grid-column: 1;
+  grid-row: 1;
+}
+.booster-copy {
+  display: contents;
+}
+.booster-copy strong {
+  grid-column: 2 / 4;
+  grid-row: 1;
+  font-size: 11px;
+  align-self: center;
+  line-height: 1.12;
+}
+.booster-copy small {
+  grid-column: 1 / 3;
+  grid-row: 2;
+  font-size: 9px;
+  line-height: 1.35;
+  align-self: center;
+  color: #fffce5d4;
+}
+.booster-price {
+  grid-column: 3;
+  grid-row: 2;
+  text-align: right;
+  font-size: 14px;
+  font-weight: 850;
+  align-self: center;
+  color: #ffe4a7;
+}
+.booster-price small {
+  display: block;
+  font-size: 8px;
+  font-weight: 600;
+}
+.booster-card:active:not(:disabled) {
+  transform: translateY(2px);
+}
+.booster-card:disabled {
+  opacity: 0.48;
+  cursor: default;
+}
+.booster-card.active {
+  opacity: 1;
+  border-color: currentColor;
+  box-shadow: 0 0 13px #74e4ed30;
+}
+.booster-explanation {
+  display: flex;
+  gap: 14px;
+  text-align: left;
+  margin: 20px 0;
+}
+.booster-explanation svg {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  color: #15779a;
+}
+.booster-explanation.safe svg {
+  color: #218156;
+}
+.booster-explanation h3 {
+  margin: 0 0 6px;
+  font-size: 17px;
+}
+.booster-explanation p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #615957;
+}
+.boost-shield .danger-wash,
+.boost-safe .danger-wash {
+  animation: none;
+  opacity: 0.55;
+  background: radial-gradient(
+    ellipse at 50% 52%,
+    transparent 35%,
+    #63d9ff38 70%,
+    #148abe70
+  );
+}
+.boost-safe .danger-wash {
+  background: radial-gradient(
+    ellipse at 50% 52%,
+    transparent 35%,
+    #81ffba30 70%,
+    #22765a80
+  );
+}
+@media (max-height: 680px) {
+  .in-game > .surface {
+    padding-top: calc(72px + env(safe-area-inset-top, 0px));
+    gap: 3px;
+  }
+  .in-game .score {
+    height: 60px;
+  }
+  .in-game .score > span {
+    font-size: 57px;
+  }
+  .in-game .game-prompt {
+    font-size: 12px;
+  }
+  .in-game .risk-label {
+    font-size: 9px;
+  }
+  .in-game .cashout-button {
+    min-height: 49px;
+  }
+  .booster-card {
+    padding: 6px 7px;
+    min-height: 67px;
+  }
+}
+
+.boost-shield .risk-label {
+  color: #b9eeff;
+}
+.boost-safe .risk-label {
+  color: #c0f6c7;
+}

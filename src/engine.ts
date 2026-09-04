@@ -1,3 +1,4 @@
+import { tapsText } from './copy.ts';
 import table from './balance.json' with { type: 'json' };
 export const INITIAL_BALANCE = 1000,
   ENTRY = 100,
@@ -10,6 +11,9 @@ export const balanceTable = table as {
   risk: number;
 }[];
 export type Mode = 'free' | 'paid';
+export type BoosterKind = 'shield' | 'safe';
+export const boosterNames = { shield: 'Щит', safe: 'Безопасная зона' };
+export const BOOSTER_TAPS = { shield: 5, safe: 3 };
 export type Round = {
   id: string;
   mode: Mode;
@@ -19,6 +23,9 @@ export type Round = {
   repelled: boolean;
   status: 'playing' | 'caught' | 'won' | 'lost';
   lostAmount: number;
+  activeBooster?: { kind: BoosterKind; tapsLeft: number } | null;
+  usedBoosters?: BoosterKind[];
+  blockedSteals?: number;
 };
 export type Entry = {
   id: string;
@@ -43,6 +50,7 @@ export type State = {
 export type Action = (
   | { type: 'start'; mode: Mode }
   | { type: 'tap' }
+  | { type: 'boost'; kind: BoosterKind; atStep: number; price: number }
   | { type: 'cashout' }
   | { type: 'repel' }
   | { type: 'forfeit' }
@@ -77,6 +85,26 @@ export function freshState(now = Date.now()): State {
 export function canFree(s: State, now = Date.now()) {
   return s.freeDay !== dayKey(now);
 }
+/** Price is based on the extra survival probability at the booster's horizon.
+ * Source payouts/risks stay unchanged. This is not a universal RTP guarantee. */
+export function boosterQuote(round: Round, kind: BoosterKind) {
+  const taps = Math.min(BOOSTER_TAPS[kind], MAX_TAPS - round.step);
+  if (taps <= 0) return { price: 0, taps: 0 };
+  const risks = balanceTable
+    .slice(round.step, round.step + taps)
+    .map((row) => row.risk);
+  const survive = risks.reduce((p, risk) => p * (1 - risk), 1);
+  const extra =
+    kind === 'safe'
+      ? 1 - survive
+      : survive * risks.reduce((sum, risk) => sum + risk / (1 - risk), 0);
+  const payout = balanceTable[round.step + taps - 1][round.mode];
+  const price =
+    Math.ceil(
+      Math.max(kind === 'safe' ? 35 : 25, 10 + extra * payout * 1.1) / 5,
+    ) * 5;
+  return { price, taps };
+}
 export function transition(
   state: State,
   action: Action,
@@ -104,7 +132,7 @@ export function transition(
     r.status = win ? 'won' : 'lost';
     r.lostAmount = win ? 0 : r.payout;
     if (win) {
-      record('Выигрыш · ' + r.step + ' тапов', r.payout);
+      record('Выигрыш · ' + tapsText(r.step), r.payout);
       s.best = Math.max(s.best, r.payout);
     } else {
       r.payout = 0;
@@ -131,12 +159,43 @@ export function transition(
         repelled: false,
         status: 'playing',
         lostAmount: 0,
+        activeBooster: null,
+        usedBoosters: [],
+        blockedSteals: 0,
       };
       s.games++;
       break;
-    case 'tap':
+    case 'boost': {
+      if (
+        !r ||
+        r.status !== 'playing' ||
+        r.step >= MAX_TAPS ||
+        !['safe', 'shield'].includes(action.kind) ||
+        r.activeBooster ||
+        r.usedBoosters?.includes(action.kind) ||
+        action.atStep !== r.step
+      )
+        return state;
+      const quote = boosterQuote(r, action.kind);
+      if (quote.price !== action.price || s.balance < quote.price) return state;
+      record('Бустер · ' + boosterNames[action.kind], -quote.price);
+      r.spent += quote.price;
+      r.usedBoosters = [...(r.usedBoosters ?? []), action.kind];
+      r.activeBooster = { kind: action.kind, tapsLeft: quote.taps };
+      break;
+    }
+    case 'tap': {
       if (!r || r.status !== 'playing' || r.step >= MAX_TAPS) return state;
-      if (random < balanceTable[r.step].risk) {
+      const theft = random < balanceTable[r.step].risk;
+      const active = r.activeBooster;
+      const protectedTap = !!active && active.tapsLeft > 0;
+      if (active) {
+        active.tapsLeft--;
+        if (theft && protectedTap) r.blockedSteals = (r.blockedSteals ?? 0) + 1;
+        if (active.tapsLeft <= 0 || (theft && active.kind === 'shield'))
+          r.activeBooster = null;
+      }
+      if (theft && !protectedTap) {
         if (r.repelled) finish(false);
         else r.status = 'caught';
       } else {
@@ -145,6 +204,7 @@ export function transition(
         if (r.step === MAX_TAPS) finish(true);
       }
       break;
+    }
     case 'cashout':
       if (!r || r.status !== 'playing' || r.step === 0) return state;
       finish(true);
@@ -197,6 +257,33 @@ export function parseState(raw: string | null, now = Date.now()): State {
         s.round.payout < 0)
     )
       s.round = null;
+    if (s.round) {
+      const r = s.round;
+      r.usedBoosters = Array.isArray(r.usedBoosters)
+        ? [
+            ...new Set(
+              r.usedBoosters.filter((k: string) =>
+                ['safe', 'shield'].includes(k),
+              ),
+            ),
+          ]
+        : [];
+      r.blockedSteals =
+        Number.isSafeInteger(r.blockedSteals) && r.blockedSteals >= 0
+          ? r.blockedSteals
+          : 0;
+      const a = r.activeBooster;
+      r.activeBooster =
+        a &&
+        ['safe', 'shield'].includes(a.kind) &&
+        Number.isInteger(a.tapsLeft) &&
+        a.tapsLeft > 0 &&
+        a.tapsLeft <= BOOSTER_TAPS[a.kind as BoosterKind]
+          ? a
+          : null;
+      if (r.activeBooster && !r.usedBoosters.includes(r.activeBooster.kind))
+        r.usedBoosters.push(r.activeBooster.kind);
+    }
     return { ...freshState(now), ...s, history: s.history.slice(0, 100) };
   } catch {
     return freshState(now);
