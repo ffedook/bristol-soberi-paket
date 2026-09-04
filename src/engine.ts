@@ -13,7 +13,14 @@ export const balanceTable = table as {
 export type Mode = 'free' | 'paid';
 export type BoosterKind = 'shield' | 'safe';
 export const boosterNames = { shield: 'Щит', safe: 'Безопасная зона' };
-export const BOOSTER_TAPS = { shield: 5, safe: 3 };
+export const BOOSTER_LIMIT = 3;
+export const SAFE_DURATION_MS = 30_000;
+export const BLOCK_ANIMATION_MS = 2800;
+export type ActiveBooster = {
+  kind: BoosterKind;
+  expiresAt?: number;
+  tapsLeft?: number;
+};
 export type Round = {
   id: string;
   mode: Mode;
@@ -23,7 +30,11 @@ export type Round = {
   repelled: boolean;
   status: 'playing' | 'caught' | 'won' | 'lost';
   lostAmount: number;
-  activeBooster?: { kind: BoosterKind; tapsLeft: number } | null;
+  activeBooster?: ActiveBooster | null;
+  boosterPurchases?: Partial<Record<BoosterKind, number>>;
+  blockUntil?: number;
+  lastBlockedAt?: number;
+  lastBlockedKind?: BoosterKind;
   usedBoosters?: BoosterKind[];
   blockedSteals?: number;
 };
@@ -85,25 +96,42 @@ export function freshState(now = Date.now()): State {
 export function canFree(s: State, now = Date.now()) {
   return s.freeDay !== dayKey(now);
 }
-/** Price is based on the extra survival probability at the booster's horizon.
- * Source payouts/risks stay unchanged. This is not a universal RTP guarantee. */
+export function activeBooster(
+  round: Round,
+  now = Date.now(),
+): ActiveBooster | null {
+  const a = round.activeBooster;
+  if (!a || round.status !== 'playing') return null;
+  if (a.kind === 'shield') return a;
+  if (a.expiresAt !== undefined) return now < a.expiresAt ? a : null;
+  // Finish already purchased v1.2 zones under their original three-press rule.
+  return (a.tapsLeft ?? 0) > 0 ? a : null;
+}
+export function boosterUses(round: Round, kind: BoosterKind) {
+  return (
+    round.boosterPurchases?.[kind] ??
+    (round.usedBoosters?.includes(kind) ? 1 : 0)
+  );
+}
+/** Cost is based on the current stake, risk and purchase number; not an RTP claim. */
 export function boosterQuote(round: Round, kind: BoosterKind) {
-  const taps = Math.min(BOOSTER_TAPS[kind], MAX_TAPS - round.step);
-  if (taps <= 0) return { price: 0, taps: 0 };
-  const risks = balanceTable
-    .slice(round.step, round.step + taps)
-    .map((row) => row.risk);
-  const survive = risks.reduce((p, risk) => p * (1 - risk), 1);
-  const extra =
-    kind === 'safe'
-      ? 1 - survive
-      : survive * risks.reduce((sum, risk) => sum + risk / (1 - risk), 0);
-  const payout = balanceTable[round.step + taps - 1][round.mode];
-  const price =
-    Math.ceil(
-      Math.max(kind === 'safe' ? 35 : 25, 10 + extra * payout * 1.1) / 5,
-    ) * 5;
-  return { price, taps };
+  const remaining = MAX_TAPS - round.step;
+  if (remaining <= 0) return { price: 0 };
+  let reach = 1,
+    saved = 0;
+  for (const row of balanceTable.slice(round.step)) {
+    saved += reach * row.risk * row[round.mode];
+    reach *= 1 - row.risk;
+  }
+  const uses = boosterUses(round, kind);
+  // A shield saves the next theft. Timed protection allows many presses, so it costs more.
+  const value = kind === 'shield' ? 15 + saved * 0.22 : 35 + saved * 0.42;
+  return {
+    price:
+      Math.ceil(
+        (Math.max(kind === 'shield' ? 35 : 60, value) * (1 + uses * 0.2)) / 5,
+      ) * 5,
+  };
 }
 export function transition(
   state: State,
@@ -162,6 +190,8 @@ export function transition(
         activeBooster: null,
         usedBoosters: [],
         blockedSteals: 0,
+        boosterPurchases: { shield: 0, safe: 0 },
+        blockUntil: 0,
       };
       s.games++;
       break;
@@ -171,8 +201,9 @@ export function transition(
         r.status !== 'playing' ||
         r.step >= MAX_TAPS ||
         !['safe', 'shield'].includes(action.kind) ||
-        r.activeBooster ||
-        r.usedBoosters?.includes(action.kind) ||
+        activeBooster(r, now) ||
+        now < (r.blockUntil ?? 0) ||
+        boosterUses(r, action.kind) >= BOOSTER_LIMIT ||
         action.atStep !== r.step
       )
         return state;
@@ -180,20 +211,43 @@ export function transition(
       if (quote.price !== action.price || s.balance < quote.price) return state;
       record('Бустер · ' + boosterNames[action.kind], -quote.price);
       r.spent += quote.price;
-      r.usedBoosters = [...(r.usedBoosters ?? []), action.kind];
-      r.activeBooster = { kind: action.kind, tapsLeft: quote.taps };
+      r.boosterPurchases = {
+        shield: boosterUses(r, 'shield'),
+        safe: boosterUses(r, 'safe'),
+        [action.kind]: boosterUses(r, action.kind) + 1,
+      };
+      r.activeBooster =
+        action.kind === 'shield'
+          ? { kind: 'shield' }
+          : { kind: 'safe', expiresAt: now + SAFE_DURATION_MS };
       break;
     }
     case 'tap': {
-      if (!r || r.status !== 'playing' || r.step >= MAX_TAPS) return state;
+      if (
+        !r ||
+        r.status !== 'playing' ||
+        r.step >= MAX_TAPS ||
+        now < (r.blockUntil ?? 0)
+      )
+        return state;
       const theft = random < balanceTable[r.step].risk;
-      const active = r.activeBooster;
-      const protectedTap = !!active && active.tapsLeft > 0;
-      if (active) {
+      const active = activeBooster(r, now);
+      const protectedTap = !!active;
+      r.activeBooster = active;
+      if (
+        active?.kind === 'safe' &&
+        active.expiresAt === undefined &&
+        active.tapsLeft !== undefined
+      ) {
         active.tapsLeft--;
-        if (theft && protectedTap) r.blockedSteals = (r.blockedSteals ?? 0) + 1;
-        if (active.tapsLeft <= 0 || (theft && active.kind === 'shield'))
-          r.activeBooster = null;
+        if (active.tapsLeft <= 0) r.activeBooster = null;
+      }
+      if (theft && active) {
+        r.blockedSteals = (r.blockedSteals ?? 0) + 1;
+        r.lastBlockedAt = now;
+        r.lastBlockedKind = active.kind;
+        r.blockUntil = now + BLOCK_ANIMATION_MS;
+        if (active.kind === 'shield') r.activeBooster = null;
       }
       if (theft && !protectedTap) {
         if (r.repelled) finish(false);
@@ -272,17 +326,41 @@ export function parseState(raw: string | null, now = Date.now()): State {
         Number.isSafeInteger(r.blockedSteals) && r.blockedSteals >= 0
           ? r.blockedSteals
           : 0;
+      const counts = r.boosterPurchases ?? {};
+      r.boosterPurchases = Object.fromEntries(
+        (['shield', 'safe'] as const).map((kind) => [
+          kind,
+          Number.isInteger(counts[kind])
+            ? Math.max(0, Math.min(BOOSTER_LIMIT, counts[kind]))
+            : r.usedBoosters.includes(kind)
+              ? 1
+              : 0,
+        ]),
+      );
       const a = r.activeBooster;
       r.activeBooster =
-        a &&
-        ['safe', 'shield'].includes(a.kind) &&
-        Number.isInteger(a.tapsLeft) &&
-        a.tapsLeft > 0 &&
-        a.tapsLeft <= BOOSTER_TAPS[a.kind as BoosterKind]
-          ? a
-          : null;
-      if (r.activeBooster && !r.usedBoosters.includes(r.activeBooster.kind))
-        r.usedBoosters.push(r.activeBooster.kind);
+        a?.kind === 'shield'
+          ? { kind: 'shield' }
+          : a?.kind === 'safe' &&
+              Number.isFinite(a.expiresAt) &&
+              a.expiresAt > now
+            ? { kind: 'safe', expiresAt: a.expiresAt }
+            : a?.kind === 'safe' &&
+                a.expiresAt === undefined &&
+                Number.isInteger(a.tapsLeft) &&
+                a.tapsLeft > 0 &&
+                a.tapsLeft <= 3
+              ? { kind: 'safe', tapsLeft: a.tapsLeft }
+              : null;
+      if (r.activeBooster)
+        r.boosterPurchases[r.activeBooster.kind] = Math.max(
+          1,
+          r.boosterPurchases[r.activeBooster.kind],
+        );
+      r.blockUntil = Number.isFinite(r.blockUntil) ? r.blockUntil : 0;
+      if (!Number.isFinite(r.lastBlockedAt)) delete r.lastBlockedAt;
+      if (!['shield', 'safe'].includes(r.lastBlockedKind))
+        delete r.lastBlockedKind;
     }
     return { ...freshState(now), ...s, history: s.history.slice(0, 100) };
   } catch {

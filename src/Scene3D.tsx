@@ -21,6 +21,8 @@ export type Scene3DProps = {
   reduced: boolean;
   previewTime?: number;
   previewBlockTime?: number;
+  lastBlockedAt?: number;
+  lastBlockedKind?: BoosterKind;
   onReady?: (ready: boolean) => void;
 };
 export default function Scene3D(props: Scene3DProps) {
@@ -214,10 +216,38 @@ export default function Scene3D(props: Scene3DProps) {
       );
       ripple.position.set(0, 1.7, 0.85);
       guard.add(ripple);
+      const loader = new THREE.TextureLoader();
+      const badgeTextures = {
+        shield: loader.load(
+          import.meta.env.BASE_URL + 'art/booster-shield.webp',
+        ),
+        safe: loader.load(import.meta.env.BASE_URL + 'art/booster-timer.webp'),
+      };
+      Object.values(badgeTextures).forEach((texture) => {
+        texture.colorSpace = THREE.SRGBColorSpace;
+      });
+      const badgeMat = new THREE.MeshBasicMaterial({
+        map: badgeTextures.shield,
+        transparent: true,
+        depthWrite: false,
+        toneMapped: false,
+      });
+      const badge = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), badgeMat);
+      guard.add(badge);
       let blockAt = -99999,
         boostAt = -99999,
         checkpointAt = -99999;
       let lastBooster: BoosterKind = 'shield';
+      let statusBlockedDelay =
+        latest.current.status === 'won'
+          ? Math.max(
+              0,
+              ((latest.current.lastBlockedAt ?? 0) +
+                BLOCK_DURATION * 1000 -
+                Date.now()) /
+                1000,
+            )
+          : 0;
       let contextLost = false,
         reportedReady = false;
       let previousId = latest.current.roundId,
@@ -271,6 +301,16 @@ export default function Scene3D(props: Scene3DProps) {
           previousId = p.roundId;
           previousStatus = p.status;
           statusAt = now;
+          statusBlockedDelay =
+            p.status === 'won'
+              ? Math.max(
+                  0,
+                  ((p.lastBlockedAt ?? 0) +
+                    BLOCK_DURATION * 1000 -
+                    Date.now()) /
+                    1000,
+                )
+              : 0;
         }
         const elapsed =
             import.meta.env.DEV && p.previewTime !== undefined
@@ -418,12 +458,13 @@ export default function Scene3D(props: Scene3DProps) {
               ? Math.sin(elapsed * 70) * 0.025 * (1 - (elapsed - 1.25) / 0.4)
               : 0);
         } else if (p.status === 'won') {
+          const victoryElapsed = Math.max(0, elapsed - statusBlockedDelay);
           const victory = reduced
             ? 0
-            : Math.sin(Math.min(1, elapsed / 1.1) * Math.PI);
+            : Math.sin(Math.min(1, victoryElapsed / 1.1) * Math.PI);
           bagActor.position.y += victory * 0.55;
-          bagActor.rotation.y = Math.sin(elapsed * 9) * victory * 0.18;
-          bagActor.rotation.z = Math.sin(elapsed * 10) * victory * 0.09;
+          bagActor.rotation.y = Math.sin(victoryElapsed * 9) * victory * 0.18;
+          bagActor.rotation.z = Math.sin(victoryElapsed * 10) * victory * 0.09;
           bag.arms.left.rotation.z = -0.85 * victory;
           bag.arms.right.rotation.z = 0.85 * victory;
           bag.lookAt(0, 0.15);
@@ -442,14 +483,19 @@ export default function Scene3D(props: Scene3DProps) {
           }
         }
         if (p.booster) lastBooster = p.booster;
+        else if (p.lastBlockedKind) lastBooster = p.lastBlockedKind;
         const blockAge =
             import.meta.env.DEV && p.previewBlockTime !== undefined
               ? p.previewBlockTime
-              : (now - blockAt) / 1000,
+              : p.lastBlockedAt !== undefined
+                ? (Date.now() - p.lastBlockedAt) / 1000
+                : (now - blockAt) / 1000,
           boostAge = (now - boostAt) / 1000;
         guard.visible =
-          p.status === 'playing' && (!!p.booster || blockAge < BLOCK_DURATION);
-        const guardColor = lastBooster === 'safe' ? 0x8df7b2 : 0x7de6ff;
+          (p.status === 'playing' && (!!p.booster || boostAge < 1.1)) ||
+          ((p.status === 'playing' || p.status === 'won') &&
+            blockAge < BLOCK_DURATION);
+        const guardColor = lastBooster === 'safe' ? 0x9aefb9 : 0xffd477;
         bubbleMat.color.setHex(guardColor);
         ringMat.color.setHex(guardColor);
         rippleMat.color.setHex(guardColor);
@@ -457,16 +503,37 @@ export default function Scene3D(props: Scene3DProps) {
         bubbleMat.opacity = p.booster
           ? 0.065 + guardPulse
           : Math.max(0, 0.2 * (1 - blockAge / BLOCK_DURATION));
-        bubble.visible = lastBooster === 'shield' || blockAge < BLOCK_DURATION;
+        bubble.visible = true;
         ring.scale.setScalar(1 + guardPulse);
         orbit.rotation.y = reduced ? 0 : t * 0.7;
         orbit.visible = !!p.booster;
         ripple.visible =
           !reduced && (blockAge < BLOCK_DURATION || boostAge < 0.7);
-        const wave = blockAge < BLOCK_DURATION ? blockAge : boostAge;
+        const wave =
+          blockAge < BLOCK_DURATION ? Math.max(0, blockAge - 0.85) : boostAge;
         ripple.scale.setScalar(0.25 + Math.min(1, wave / 0.8) * 1.6);
-        rippleMat.opacity = Math.max(0, 0.65 * (1 - wave / 0.95));
-        if (p.status === 'playing' && blockAge < BLOCK_DURATION) {
+        rippleMat.opacity =
+          blockAge < 0.85 ? 0 : Math.max(0, 0.65 * (1 - wave / 0.95));
+        badgeMat.map = badgeTextures[lastBooster];
+        badge.visible =
+          !reduced && (boostAge < 1.1 || (blockAge >= 0.65 && blockAge < 1.8));
+        badge.position.set(
+          blockAge < BLOCK_DURATION ? 1.38 : -1.05,
+          blockAge < BLOCK_DURATION ? 1.6 : 2.4,
+          1.05,
+        );
+        const badgeProgress =
+          blockAge < BLOCK_DURATION ? Math.max(0, blockAge - 0.65) : boostAge;
+        badge.scale.setScalar(
+          0.65 + Math.sin(Math.min(1, badgeProgress / 0.5) * Math.PI) * 0.3,
+        );
+        badge.rotation.z = reduced
+          ? 0
+          : Math.sin(badgeProgress * 14) * Math.exp(-badgeProgress * 3) * 0.12;
+        if (
+          (p.status === 'playing' || p.status === 'won') &&
+          blockAge < BLOCK_DURATION
+        ) {
           bag.setExpression('relieved');
           rim.color.setHex(guardColor);
           rim.intensity = 4;
@@ -485,11 +552,36 @@ export default function Scene3D(props: Scene3DProps) {
             thiefActor.visible = q.visible;
             thiefActor.position.set(q.x, q.y, -0.3);
             thiefActor.rotation.set(0, -0.6, q.tilt);
-            squirrel.setExpression('defeated');
-            squirrel.arms.left.rotation.x = -0.9;
-            squirrel.arms.right.rotation.x = -0.9;
-            bagActor.rotation.z +=
-              Math.sin(blockAge * 24) * Math.exp(-blockAge * 6) * 0.055;
+            squirrel.setExpression(blockAge > 0.85 ? 'defeated' : 'sneaky');
+            squirrel.arms.right.rotation.x = -0.8 * q.reach;
+            squirrel.legs.left.rotation.x =
+              Math.sin(blockAge * 19) *
+              (blockAge < 0.6 || blockAge > 1.5 ? 0.4 : 0);
+            squirrel.legs.right.rotation.x = -squirrel.legs.left.rotation.x;
+            if (q.reach > 0) {
+              carrying.updateMatrixWorld(true);
+              squirrel.hands.left.getWorldPosition(neutralWrist);
+              grip.set(1.45, 1.5, 0.8).lerpVectors(neutralWrist, grip, q.reach);
+              squirrel.arms.left.getWorldPosition(shoulder);
+              armsStretch.left.apply(
+                Math.max(
+                  1,
+                  (shoulder.distanceTo(grip) /
+                    (armLength.left * squirrel.root.scale.x)) *
+                    1.03,
+                ),
+              );
+              pole.set(1.6, 0.8, 1.5);
+              armsIK.left.solve(grip, pole);
+            }
+            bagActor.position.y = 0;
+            bag.lookAt(0.7, 0);
+            if (q.impact) {
+              bubbleMat.opacity = 0.13 + Math.sin(blockAge * 24) * 0.035;
+              bagActor.rotation.z += Math.sin((blockAge - 0.85) * 24) * 0.025;
+              squirrel.head.rotation.z =
+                Math.sin((blockAge - 0.85) * 21) * 0.045;
+            }
           }
         }
         const celebrationAge = (now - checkpointAt) / 1000;
@@ -525,7 +617,7 @@ export default function Scene3D(props: Scene3DProps) {
         envMap.dispose();
         const geometries = new Set<THREE.BufferGeometry>(),
           materials = new Set<THREE.Material>(),
-          textures = new Set<THREE.Texture>();
+          textures = new Set<THREE.Texture>(Object.values(badgeTextures));
         scene.traverse((o) => {
           if (o instanceof THREE.Mesh) {
             geometries.add(o.geometry);

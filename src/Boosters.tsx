@@ -1,6 +1,10 @@
 import {
+  activeBooster,
   boosterNames,
   boosterQuote,
+  boosterUses,
+  BOOSTER_LIMIT,
+  SAFE_DURATION_MS,
   type BoosterKind,
   type Round,
   type Action,
@@ -8,67 +12,50 @@ import {
 import { tapsText } from './copy';
 export function BoosterIcon({ kind }: { kind: BoosterKind }) {
   return (
-    <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
-      {kind === 'shield' ? (
-        <>
-          <path
-            d="M16 3 27 7v8c0 7-6 12-11 14C11 27 5 22 5 15V7L16 3Z"
-            fill="currentColor"
-            fillOpacity=".18"
-            stroke="currentColor"
-            strokeWidth="2"
-          />
-          <path
-            d="m11 16 3 3 7-8"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </>
-      ) : (
-        <>
-          <ellipse
-            cx="16"
-            cy="24"
-            rx="12"
-            ry="4"
-            stroke="currentColor"
-            strokeWidth="2"
-          />
-          <path
-            d="M5 23V16a11 11 0 0 1 22 0v7"
-            stroke="currentColor"
-            strokeWidth="2"
-          />
-          <path
-            d="m16 9 1.8 4.2L22 15l-4.2 1.8L16 21l-1.8-4.2L10 15l4.2-1.8L16 9Z"
-            fill="currentColor"
-          />
-        </>
-      )}
-    </svg>
+    <img
+      className="booster-art"
+      src={
+        import.meta.env.BASE_URL +
+        'art/booster-' +
+        (kind === 'shield' ? 'shield' : 'timer') +
+        '.webp'
+      }
+      alt=""
+      draggable={false}
+    />
   );
 }
 export function Boosters({
   round,
   balance,
+  now,
   onBuy,
   onHelp,
 }: {
   round: Round;
   balance: number;
+  now: number;
   onBuy: (a: Action) => void;
   onHelp: () => void;
 }) {
-  const active = round.activeBooster;
+  const active = activeBooster(round, now);
+  const seconds = active?.expiresAt
+    ? Math.max(0, Math.ceil((active.expiresAt - now) / 1000))
+    : 0;
+  const busy = now < (round.blockUntil ?? 0);
   return (
     <section className="boosters" aria-label="Бустеры">
       <div className="booster-heading">
         <span>
-          {active
-            ? `${boosterNames[active.kind]} · ещё ${tapsText(active.tapsLeft)}`
-            : 'Бустеры за монеты'}
+          {busy
+            ? 'Белка не пройдёт!'
+            : active
+              ? active.kind === 'shield'
+                ? 'Щит готов · до одной кражи'
+                : active.expiresAt
+                  ? `Безопасная зона · ${seconds} сек.`
+                  : `Защита · ещё ${tapsText(active.tapsLeft ?? 0)}`
+              : 'Усиль свой пакет'}
         </span>
         <button
           className="booster-help"
@@ -81,23 +68,30 @@ export function Boosters({
       <div className="booster-options">
         {(['shield', 'safe'] as const).map((kind) => {
           const quote = boosterQuote(round, kind),
-            used = round.usedBoosters?.includes(kind),
-            enabled = active?.kind === kind;
+            uses = boosterUses(round, kind),
+            selected = active?.kind === kind,
+            exhausted = uses >= BOOSTER_LIMIT;
           const unavailable =
             round.status !== 'playing' ||
             !!active ||
-            used ||
+            busy ||
+            exhausted ||
             balance < quote.price;
           const detail =
-            kind === 'shield'
-              ? `От 1 кражи · ${tapsText(quote.taps)}`
-              : `${tapsText(quote.taps)} без кражи`;
+            kind === 'shield' ? 'Блокирует одну кражу' : '30 секунд без кражи';
+          const status = selected
+            ? kind === 'safe' && active.expiresAt
+              ? `${seconds} сек`
+              : 'Включён'
+            : exhausted
+              ? 'Лимит за раунд'
+              : 'За ' + quote.price + ' монет';
           return (
             <button
               key={kind}
-              className={`booster-card ${kind}${enabled ? ' active' : ''}`}
+              className={`booster-card ${kind}${selected ? ' active' : ''}${exhausted && !selected ? ' exhausted' : ''}`}
               disabled={unavailable}
-              aria-label={`${boosterNames[kind]}. ${enabled ? 'Активен' : used ? 'Использован' : detail + '. Купить за ' + quote.price + ' монет'}`}
+              aria-label={`${boosterNames[kind]}. ${detail}. ${status}. Куплено ${uses} из ${BOOSTER_LIMIT}`}
               onClick={() =>
                 onBuy({
                   type: 'boost',
@@ -107,29 +101,49 @@ export function Boosters({
                 })
               }
             >
-              <BoosterIcon kind={kind} />
+              <div className="booster-medallion">
+                <BoosterIcon kind={kind} />
+              </div>
               <span className="booster-copy">
-                <strong>{boosterNames[kind]}</strong>
-                <small>
-                  {enabled
-                    ? 'Защита включена'
-                    : used
-                      ? 'Использован в раунде'
-                      : detail}
-                </small>
+                <strong>{kind === 'shield' ? 'Щит' : 'Сейф-зона'}</strong>
+                <small>{detail}</small>
+              </span>
+              <span className="booster-slots" aria-hidden="true">
+                {[0, 1, 2].map((i) => (
+                  <i key={i} className={i < uses ? 'spent' : ''} />
+                ))}
               </span>
               <span className="booster-price">
-                {enabled ? (
-                  '✓'
-                ) : used ? (
-                  '—'
+                {selected ? (
+                  kind === 'safe' && active.expiresAt ? (
+                    <>
+                      <b>{seconds}</b>
+                      <small>сек.</small>
+                    </>
+                  ) : (
+                    'АКТИВЕН'
+                  )
+                ) : exhausted ? (
+                  '3 / 3'
                 ) : (
                   <>
+                    <img
+                      src={import.meta.env.BASE_URL + 'art/coin.webp'}
+                      alt=""
+                    />
                     {quote.price}
-                    <small>монет</small>
                   </>
                 )}
               </span>
+              {selected && active.expiresAt && (
+                <span className="booster-time-track" aria-hidden="true">
+                  <i
+                    style={{
+                      transform: `scaleX(${Math.max(0, (active.expiresAt - now) / SAFE_DURATION_MS)})`,
+                    }}
+                  />
+                </span>
+              )}
             </button>
           );
         })}

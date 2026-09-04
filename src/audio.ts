@@ -7,23 +7,28 @@ export function unlockAudio() {
     /* Audio is optional. */
   }
 }
-export function sound(kind: 'tap' | 'win' | 'danger' | 'repel', progress = 0) {
+export function sound(
+  kind: 'tap' | 'win' | 'danger' | 'repel' | 'block',
+  progress = 0,
+) {
   try {
     context ??= new AudioContext();
     if (context.state === 'suspended') void context.resume();
     const ctx = context;
     const notes =
-      kind === 'win'
-        ? [523, 659, 784, 1047]
-        : kind === 'danger'
-          ? [160, 120, 80]
-          : kind === 'repel'
-            ? [220, 440, 880]
-            : [400 + Math.min(progress, 120) * 5];
+      kind === 'block'
+        ? [180, 620, 420, 900]
+        : kind === 'win'
+          ? [523, 659, 784, 1047]
+          : kind === 'danger'
+            ? [160, 120, 80]
+            : kind === 'repel'
+              ? [220, 440, 880]
+              : [400 + Math.min(progress, 120) * 5];
     notes.forEach((freq, i) => {
       const osc = ctx.createOscillator(),
         gain = ctx.createGain();
-      const t = ctx.currentTime + i * 0.08;
+      const t = ctx.currentTime + (kind === 'block' ? 0.85 : 0) + i * 0.08;
       osc.type = kind === 'danger' ? 'triangle' : 'sine';
       osc.frequency.setValueAtTime(freq, t);
       osc.frequency.exponentialRampToValueAtTime(

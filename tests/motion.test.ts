@@ -34,8 +34,16 @@ test('blocked thief stays outside the bag and camera returns after recoil', () =
     assert.ok(p.camera >= 0 && p.camera <= 1);
   }
   assert.equal(blockPose(0).camera, 0);
-  assert.equal(blockPose(0.28).camera, 1);
-  assert.ok(blockPose(0.7).x > blockPose(0.28).x);
+  assert.equal(blockPose(0.8).camera, 1);
+  assert.ok(blockPose(2).x > blockPose(1).x);
   assert.equal(blockPose(BLOCK_DURATION).visible, false);
   assert.equal(blockPose(BLOCK_DURATION).camera, 0);
+});
+
+test('shield contact lasts long enough to read before the recoil', () => {
+  assert.equal(blockPose(0.5).impact, false);
+  assert.equal(blockPose(1.1).impact, true);
+  assert.equal(blockPose(1.1).reach, 1);
+  assert.equal(blockPose(1.9).impact, false);
+  assert.ok(blockPose(1.9).x > blockPose(1.1).x);
 });

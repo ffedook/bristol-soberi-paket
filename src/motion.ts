@@ -38,16 +38,17 @@ export function theftPose(seconds: number) {
 }
 
 /** Approach the outside of the guard, recoil, then restore the camera. */
-export const BLOCK_DURATION = 1.3;
+export const BLOCK_DURATION = 2.8;
 export function blockPose(seconds: number) {
-  const approach = ease(seconds / 0.25);
-  const recoil = ease((seconds - 0.28) / 0.6);
+  const approach = ease(seconds / 0.6);
+  const recoil = ease((seconds - 1.5) / 0.85);
   return {
-    camera: approach * (1 - ease((seconds - 0.85) / 0.45)),
-    x: 4.5 - approach * 2.1 + recoil * 4,
-    y: Math.sin(recoil * Math.PI) * 0.4,
+    camera: approach * (1 - ease((seconds - 2.35) / 0.45)),
+    x: 4.5 - approach * 2.1 + recoil * 4.8,
+    y: Math.sin(recoil * Math.PI) * 0.45,
     tilt: -recoil * 0.45,
-    impact: seconds >= 0.25 && seconds < 0.85,
-    visible: seconds >= 0 && seconds < 0.95,
+    reach: ease((seconds - 0.6) / 0.25) * (1 - ease((seconds - 1.4) / 0.25)),
+    impact: seconds >= 0.85 && seconds < 1.5,
+    visible: seconds >= 0 && seconds < 2.35,
   };
 }

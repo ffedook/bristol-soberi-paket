@@ -1780,3 +1780,233 @@ button,
 .boost-safe .risk-label {
   color: #c0f6c7;
 }
+
+/* Illustrated booster cards share the warm enamel and gold of the game's coins. */
+.booster-options {
+  gap: 9px;
+}
+.booster-heading {
+  color: #fff3d1;
+  min-height: 25px;
+}
+.booster-card,
+.booster-card.safe {
+  position: relative;
+  overflow: hidden;
+  grid-template-columns: 48px minmax(0, 1fr);
+  grid-template-rows: 49px 25px;
+  gap: 3px 5px;
+  padding: 6px 8px;
+  min-height: 91px;
+  border: 1.5px solid #e8b855;
+  border-radius: 15px;
+  color: #fff5d8;
+  background: linear-gradient(150deg, #993b35, #581d28 65%, #361722);
+  box-shadow:
+    inset 0 1px 1px #ffecc77a,
+    inset 0 -3px 0 #230c1790,
+    0 4px 0 #30141dc0,
+    0 5px 12px #17041455;
+}
+.booster-card.safe {
+  background: linear-gradient(150deg, #715435, #453129 65%, #2d2024);
+}
+.booster-medallion {
+  grid-column: 1;
+  grid-row: 1;
+  width: 50px;
+  height: 50px;
+  align-self: center;
+  position: relative;
+}
+.booster-art {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 2px #220a1960);
+}
+.booster-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+}
+.booster-copy strong {
+  font-size: 13px;
+  align-self: start;
+  color: #fff7de;
+  line-height: 1.1;
+}
+.booster-copy small {
+  font-size: 9px;
+  line-height: 1.25;
+  color: #ffebc6;
+  align-self: start;
+}
+.booster-slots {
+  grid-row: 2;
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.booster-slots i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: linear-gradient(#fff4b8, #ebae38);
+  border: 1px solid #ffd777;
+  box-shadow: 0 1px 3px #190a0f80;
+}
+.booster-slots i.spent {
+  background: #1c111b90;
+  border-color: #b5855350;
+  box-shadow: inset 0 1px 2px #0007;
+}
+.booster-price {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  grid-row: 2;
+  grid-column: 2;
+  align-self: stretch;
+  border-radius: 8px;
+  background: #290c1890;
+  color: #ffe99e;
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.booster-price img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+.booster-price small {
+  font-size: 10px;
+}
+.booster-card:disabled {
+  opacity: 0.66;
+}
+.booster-card.exhausted {
+  opacity: 0.47;
+}
+.booster-card.active {
+  opacity: 1;
+  border-color: #ffe9a0;
+  box-shadow:
+    inset 0 0 15px #ffd16724,
+    0 0 16px #ffd16755,
+    0 4px 0 #30141dc0;
+}
+.booster-card.active .booster-price {
+  background: #f4c466;
+  color: #53291b;
+  font-size: 10px;
+}
+.booster-card.active.safe .booster-price {
+  background: #b9efb5;
+  color: #224630;
+  font-size: 14px;
+}
+.booster-card.active .booster-art {
+  animation:
+    booster-reveal 0.6s cubic-bezier(0.2, 0.8, 0.2, 1),
+    booster-hover 3s 0.6s ease-in-out infinite;
+}
+.booster-time-track {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: #ffffff15;
+}
+.booster-time-track i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: left;
+  background: linear-gradient(90deg, #f5cd65, #cdffd0);
+  transition: transform 0.1s linear;
+}
+.booster-explanation .booster-art {
+  width: 62px;
+  height: 62px;
+  flex-shrink: 0;
+}
+.boost-shield .risk-label {
+  color: #ffe29b;
+}
+.shield-blocking .risk-label {
+  color: #ffe9ab;
+}
+@keyframes booster-reveal {
+  0% {
+    transform: scale(0.55) rotate(-18deg);
+  }
+  60% {
+    transform: scale(1.2) rotate(7deg);
+  }
+  100% {
+    transform: scale(1) rotate(0);
+  }
+}
+@keyframes booster-hover {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-3deg);
+  }
+  50% {
+    transform: translateY(-3px) rotate(3deg);
+  }
+}
+@media (max-width: 350px) {
+  .booster-card,
+  .booster-card.safe {
+    grid-template-columns: 39px minmax(0, 1fr);
+    padding: 5px 6px;
+    gap: 3px 4px;
+  }
+  .booster-medallion {
+    width: 42px;
+    height: 46px;
+  }
+  .booster-copy strong {
+    font-size: 11px;
+  }
+  .booster-copy small {
+    font-size: 8px;
+  }
+  .booster-price {
+    font-size: 12px;
+  }
+  .booster-heading {
+    font-size: 10px;
+  }
+}
+@media (max-height: 680px) {
+  .booster-card,
+  .booster-card.safe {
+    min-height: 81px;
+    grid-template-rows: 43px 22px;
+  }
+  .booster-medallion {
+    height: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .booster-card.active .booster-art {
+    animation: none;
+  }
+  .booster-time-track i {
+    transition: none;
+  }
+}

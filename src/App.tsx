@@ -21,7 +21,7 @@ import { Effects, emitEffect } from './Effects';
 import { sound, unlockAudio } from './audio';
 import { Boosters, BoosterIcon } from './Boosters';
 import { tapsText, coinsText } from './copy';
-import { boosterNames } from './engine';
+import { boosterNames, activeBooster } from './engine';
 import { TapTarget } from './TapTarget';
 import { hapticMode, resultHaptic } from './haptics';
 import { sceneBeat, THEFT_DURATION, WIN_DURATION } from './motion';
@@ -114,6 +114,23 @@ function Dialog({
 export default function App() {
   const { state, dispatch, storageError } = useGame();
   const r = state.round;
+  const [clockNow, setClockNow] = useState(Date.now);
+  useEffect(() => {
+    if (!r || r.status !== 'playing') return;
+    const update = () => setClockNow(Date.now());
+    update();
+    const timer = setInterval(update, 100);
+    window.addEventListener('focus', update);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', update);
+    };
+  }, [r]);
+  const protection = r
+    ? activeBooster(r, Math.max(clockNow, Date.now()))
+    : null;
+  const blocking = !!r && clockNow < (r.blockUntil ?? 0);
+
   const [threeReady, setThreeReady] = useState(false);
   const [feedbackMode] = useState(hapticMode);
   useEffect(() => {
@@ -227,12 +244,14 @@ export default function App() {
           setScene('');
           setResultReady(true);
         },
-        reduced ? 100 : WIN_DURATION,
+        reduced
+          ? 100
+          : WIN_DURATION + Math.max(0, (r?.blockUntil ?? 0) - Date.now()),
       );
       return () => clearTimeout(t);
     }
     setScene('');
-  }, [roundId, roundStatus, reduced]);
+  }, [roundId, roundStatus, reduced, r?.blockUntil]);
   const effectPoint = () => {
     const rect = shell.current?.getBoundingClientRect();
     return { x: (rect?.width ?? 428) / 2, y: (rect?.height ?? 820) * 0.58 };
@@ -249,13 +268,19 @@ export default function App() {
       sceneBeat({ kind: 'boost' });
       if (state.sound) sound('repel');
       resultHaptic(state.haptics, 'repel');
-      setToast(boosterNames[a.kind] + ': защита включена');
+      setToast(
+        boosterNames[a.kind] +
+          (a.kind === 'safe'
+            ? ': 30 секунд без краж'
+            : ': следующая кража заблокирована'),
+      );
     }
     if (a.type === 'tap') {
       if (
         (after.round?.blockedSteals ?? 0) > (before.round?.blockedSteals ?? 0)
       ) {
         sceneBeat({ kind: 'block' });
+        if (state.sound) sound('block');
         resultHaptic(state.haptics, 'repel');
         setToast('Защита сработала — пакет у тебя!');
       }
@@ -264,7 +289,12 @@ export default function App() {
         resultHaptic(state.haptics, 'danger');
       } else {
         const gain = (after.round?.payout ?? 0) - (before.round?.payout ?? 0);
-        if (state.sound) sound('tap', after.round?.step);
+        if (
+          state.sound &&
+          (after.round?.blockedSteals ?? 0) ===
+            (before.round?.blockedSteals ?? 0)
+        )
+          sound('tap', after.round?.step);
         if (after.round?.status === 'playing' && after.round.step % 10 === 0)
           sceneBeat({ kind: 'checkpoint' });
         emitEffect({
@@ -329,7 +359,8 @@ export default function App() {
           ' scene-' +
           scene +
           (threeReady ? ' has-3d' : '') +
-          (r?.activeBooster ? ' boost-' + r.activeBooster.kind : '')
+          (protection ? ' boost-' + protection.kind : '') +
+          (blocking ? ' shield-blocking' : '')
         }
         ref={shell}
         style={
@@ -503,15 +534,17 @@ export default function App() {
                 </div>
                 <div className={'risk-label ' + tier}>
                   <span className="risk-dot" />
-                  {r.activeBooster
-                    ? r.activeBooster.kind === 'safe'
-                      ? 'ПАКЕТ В БЕЗОПАСНОЙ ЗОНЕ'
-                      : 'ЩИТ ГОТОВ ОТБИТЬ КРАЖУ'
-                    : tier === 'high'
-                      ? 'ВЫСОКИЙ РИСК'
-                      : tier === 'medium'
-                        ? 'БЕЛКА ВСЁ БЛИЖЕ'
-                        : 'НЕ ТЕРЯЙ БДИТЕЛЬНОСТЬ'}
+                  {blocking
+                    ? 'БЕЛКА НЕ СМОЖЕТ УКРАСТЬ ПАКЕТ'
+                    : protection
+                      ? protection.kind === 'safe'
+                        ? 'ПАКЕТ В БЕЗОПАСНОЙ ЗОНЕ'
+                        : 'ЩИТ ГОТОВ ОТБИТЬ КРАЖУ'
+                      : tier === 'high'
+                        ? 'ВЫСОКИЙ РИСК'
+                        : tier === 'medium'
+                          ? 'БЕЛКА ВСЁ БЛИЖЕ'
+                          : 'НЕ ТЕРЯЙ БДИТЕЛЬНОСТЬ'}
                 </div>
               </section>
               <div className="bag-stage">
@@ -521,7 +554,9 @@ export default function App() {
                   <Scene3D
                     roundId={r.id}
                     step={r.step}
-                    booster={r.activeBooster?.kind ?? null}
+                    booster={protection?.kind ?? null}
+                    lastBlockedAt={r.lastBlockedAt}
+                    lastBlockedKind={r.lastBlockedKind}
                     status={r.status}
                     reduced={reduced}
                     onReady={setThreeReady}
@@ -533,7 +568,7 @@ export default function App() {
                     'bag-button ' +
                     (['caught', 'lost'].includes(r.status) ? 'caught-bag' : '')
                   }
-                  disabled={!!modal || r.status !== 'playing'}
+                  disabled={!!modal || r.status !== 'playing' || blocking}
                   haptics={state.haptics}
                   onPress={() => {
                     sceneBeat({ kind: 'tap' });
@@ -575,6 +610,7 @@ export default function App() {
                 <Boosters
                   round={r}
                   balance={state.balance}
+                  now={Math.max(clockNow, Date.now())}
                   onBuy={(action) => void act(action)}
                   onHelp={() => setModal('boosters')}
                 />
@@ -586,16 +622,18 @@ export default function App() {
                   ЗАБРАТЬ МОНЕТЫ
                 </button>
                 <p className="footer-note" role="status">
-                  {toast ||
-                    (r.status === 'playing'
-                      ? r.step === 0
-                        ? 'Можно тапать несколькими пальцами'
-                        : r.repelled
-                          ? 'Белка вернётся — второго отгона не будет'
-                          : 'Можно забрать выигрыш прямо сейчас'
-                      : r.status === 'won'
-                        ? 'Монеты зачислены на баланс'
-                        : 'Белка уносит пакет')}
+                  {blocking
+                    ? 'Защита держит удар — пакет остаётся у тебя'
+                    : toast ||
+                      (r.status === 'playing'
+                        ? r.step === 0
+                          ? 'Можно тапать несколькими пальцами'
+                          : r.repelled
+                            ? 'Белка вернётся — второго отгона не будет'
+                            : 'Можно забрать выигрыш прямо сейчас'
+                        : r.status === 'won'
+                          ? 'Монеты зачислены на баланс'
+                          : 'Белка уносит пакет')}
                 </p>
               </div>
             </>
@@ -714,8 +752,8 @@ export default function App() {
               <div>
                 <h3>Щит</h3>
                 <p>
-                  Блокирует одну попытку кражи в течение следующих пяти нажатий.
-                  После срабатывания или пятого нажатия исчезает.
+                  Сохраняется до первой попытки кражи. Белка подбегает и
+                  наталкивается на щит — пакет остаётся у тебя, щит расходуется.
                 </p>
               </div>
             </div>
@@ -724,19 +762,21 @@ export default function App() {
               <div>
                 <h3>Безопасная зона</h3>
                 <p>
-                  Три следующих нажатия гарантированно сохранят пакет. Защищает
-                  от каждой попытки кражи за это время.
+                  Защищает от всех краж 30 секунд. Пока идёт таймер, белка не
+                  может унести пакет. Время идёт и при сворачивании игры.
                 </p>
               </div>
             </div>
             <p className="small-copy">
               Покупка сразу включает защиту и списывает монеты с баланса. Каждый
-              бустер — один раз за раунд. Одновременно действует только один.
+              бустер можно купить до трёх раз за раунд. Одновременно действует
+              один; после окончания можно купить снова.
             </p>
             <p className="small-copy">
-              Цена зависит от риска и возможного выигрыша. Она показана на
-              кнопке. В конце раунда защита заканчивается; ближе к финалу число
-              защищённых нажатий сокращается до оставшихся.
+              Цена показана на кнопке и зависит от выигрыша и числа покупок. Три
+              золотые точки показывают оставшиеся покупки. Раунд заканчивается,
+              когда ты забираешь монеты или теряешь пакет. Во время отражения
+              кражи нажатия приостановлены, таймер продолжает идти.
             </p>
             <button className="red-button action-button" onClick={closeModal}>
               ПОНЯТНО
@@ -762,9 +802,9 @@ export default function App() {
               </li>
             </ol>
             <p className="small-copy">
-              Бустеры включаются до кражи: щит блокирует одну попытку кражи в
-              пределах пяти нажатий, безопасная зона защищает три нажатия
-              подряд. Каждый доступен один раз за раунд, по одному одновременно.
+              Бустеры включаются до кражи: щит блокирует одну попытку,
+              безопасная зона защищает 30 секунд. Каждый можно купить до трёх
+              раз за раунд, по одному одновременно.
             </p>
             <div className="rules-economy">
               <p>

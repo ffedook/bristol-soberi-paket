@@ -63,7 +63,7 @@ export default function SceneLab() {
           onClick={() => {
             setStatus('playing');
             setBooster('shield');
-            setBlockTime(0.28);
+            setBlockTime(1.1);
           }}
         >
           Удар о щит
@@ -72,7 +72,7 @@ export default function SceneLab() {
           onClick={() => {
             setStatus('playing');
             setBooster('shield');
-            setBlockTime(0.6);
+            setBlockTime(1.9);
           }}
         >
           Отскок от щита
