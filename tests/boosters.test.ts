@@ -57,26 +57,31 @@ test('shield remains after many safe presses and blocks exactly the next theft',
   s = tap(s, now + 100_000 + BLOCK_ANIMATION_MS);
   assert.equal(s.round!.status, 'caught');
 });
-test('30-second zone blocks every theft until the exact expiry boundary', () => {
+test('3-second zone blocks thefts and expires even during the recoil animation', () => {
   let s = buy(start(), 'safe');
-  for (const seconds of [0, 3, 6, 9, 12, 15, 18, 21, 24, 27])
-    s = tap(s, now + seconds * 1000);
-  assert.equal(s.round!.step, 10);
-  assert.equal(s.round!.blockedSteals, 10);
+  for (const elapsed of [0, BLOCK_ANIMATION_MS])
+    s = tap(s, now + elapsed);
+  assert.equal(s.round!.step, 2);
+  assert.equal(s.round!.blockedSteals, 2);
   assert.equal(s.round!.activeBooster!.expiresAt, now + SAFE_DURATION_MS);
-  assert.equal(activeBooster(s.round!, now + 29999)?.kind, 'safe');
-  assert.equal(activeBooster(s.round!, now + 30000), null);
-  s = tap(s, now + 30000);
+  assert.equal(activeBooster(s.round!, now + 2999)?.kind, 'safe');
+  assert.equal(activeBooster(s.round!, now + 3000), null);
+  s = tap(s, now + BLOCK_ANIMATION_MS * 2);
   assert.equal(s.round!.status, 'caught');
+});
+test('theft at exactly 3 seconds is no longer protected', () => {
+  let s = buy(start(), 'safe');
+  s = tap(s, now + 2999, 0.99);
+  assert.equal(tap(s, now + 3000).round!.status, 'caught');
 });
 test('expiry is real time and does not extend after reload or background time', () => {
   const bought = buy(start(), 'safe');
-  const reloaded = parseState(JSON.stringify(bought), now + 12_000);
-  assert.equal(reloaded.round!.activeBooster!.expiresAt, now + 30_000);
-  const expired = parseState(JSON.stringify(reloaded), now + 31_000);
+  const reloaded = parseState(JSON.stringify(bought), now + 1200);
+  assert.equal(reloaded.round!.activeBooster!.expiresAt, now + 3000);
+  const expired = parseState(JSON.stringify(reloaded), now + 3100);
   assert.equal(expired.round!.activeBooster, null);
   assert.equal(boosterUses(expired.round!, 'safe'), 1);
-  assert.equal(tap(expired, now + 31_000).round!.status, 'caught');
+  assert.equal(tap(expired, now + 3100).round!.status, 'caught');
 });
 test('each booster can be bought three times per round and never a fourth', () => {
   for (const kind of ['shield', 'safe'] as const) {
@@ -115,8 +120,8 @@ test('block animation locks queued taps and purchases, survives reload, then unl
 test('cannot stack protection and an expired timer permits a new purchase', () => {
   let s = buy(start(), 'safe');
   assert.equal(buy(s, 'shield'), s);
-  const after = buy(s, 'shield', now + 30_000);
-  assert.equal(activeBooster(after.round!, now + 30_000)?.kind, 'shield');
+  const after = buy(s, 'shield', now + 3000);
+  assert.equal(activeBooster(after.round!, now + 3000)?.kind, 'shield');
 });
 test('stale price, stale step, wrong round, low balance and finished rounds never debit', () => {
   const s = start(),
@@ -156,7 +161,7 @@ test('legacy shield is preserved and legacy zone finishes its purchased three ch
   s = buy(s, 'safe', now + BLOCK_ANIMATION_MS * 2);
   assert.equal(
     s.round!.activeBooster!.expiresAt,
-    now + BLOCK_ANIMATION_MS * 2 + 30_000,
+    now + BLOCK_ANIMATION_MS * 2 + SAFE_DURATION_MS,
   );
   assert.equal(boosterUses(s.round!, 'safe'), 2);
 });

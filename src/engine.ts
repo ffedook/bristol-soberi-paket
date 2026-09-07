@@ -14,7 +14,7 @@ export type Mode = 'free' | 'paid';
 export type BoosterKind = 'shield' | 'safe';
 export const boosterNames = { shield: 'Щит', safe: 'Безопасная зона' };
 export const BOOSTER_LIMIT = 3;
-export const SAFE_DURATION_MS = 30_000;
+export const SAFE_DURATION_MS = 3_000;
 export const BLOCK_ANIMATION_MS = 2800;
 export type ActiveBooster = {
   kind: BoosterKind;

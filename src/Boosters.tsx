@@ -78,7 +78,7 @@ export function Boosters({
             exhausted ||
             balance < quote.price;
           const detail =
-            kind === 'shield' ? 'Блокирует одну кражу' : '30 секунд без кражи';
+            kind === 'shield' ? 'Блокирует одну кражу' : '3 секунды без кражи';
           const status = selected
             ? kind === 'safe' && active.expiresAt
               ? `${seconds} сек`
